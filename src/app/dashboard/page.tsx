@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { Transaction, Profile } from '@/types/database'
 import { formatCurrency } from '@/lib/countries'
+import QuickAddTransaction from '../components/QuickAddTransaction'
 import { 
   ArrowTrendingUpIcon, 
   ArrowTrendingDownIcon, 
@@ -53,6 +54,35 @@ export default function Dashboard() {
     salary: <BanknotesIcon className="h-6 w-6 text-emerald-500" />,
     freelance: <UserGroupIcon className="h-6 w-6 text-violet-500" />,
     investments: <ArrowTrendingUpIcon className="h-6 w-6 text-lime-500" />,
+  }
+
+  // Category color mapping
+  const getCategoryColor = (category: string) => {
+    const colorMap: Record<string, string> = {
+      food: '#f97316', // orange-500
+      groceries: '#84cc16', // lime-500
+      housing: '#3b82f6', // blue-500
+      rent: '#2563eb', // blue-600
+      transportation: '#6366f1', // indigo-500
+      utilities: '#eab308', // yellow-500
+      entertainment: '#ec4899', // pink-500
+      healthcare: '#ef4444', // red-500
+      education: '#06b6d4', // cyan-500
+      salary: '#10b981', // emerald-500
+      freelance: '#8b5cf6', // violet-500
+      investments: '#14b8a6', // teal-500
+      shopping: '#f43f5e', // rose-500
+      travel: '#8b5cf6', // violet-500
+      subscriptions: '#6366f1', // indigo-500
+      insurance: '#0891b2', // cyan-600
+      internet: '#f97316', // orange-500
+      phone: '#f59e0b', // amber-500
+      electronics: '#7c3aed', // violet-600
+      gifts: '#ec4899', // pink-500
+    }
+    
+    const normalizedCategory = category.toLowerCase().replace(/\s+/g, '_')
+    return colorMap[normalizedCategory] || '#9ca3af' // gray-400 as default
   }
 
   // Default icon if category doesn't exist
@@ -159,48 +189,88 @@ export default function Dashboard() {
     }
   }, [transactions])
 
-  // Group transactions by category for visualization
+  // Group transactions by category for visualization - improved for better analytics
   const categoryData = useMemo(() => {
-    const categories: Record<string, { total: number, type: string }> = {}
+    // Focus on expenses only for category breakdown
+    const expenses = transactions.filter(t => t.type === 'expense')
+    const categories: Record<string, { total: number, count: number, avg: number }> = {}
     
-    transactions.forEach(transaction => {
+    expenses.forEach(transaction => {
       if (!categories[transaction.category]) {
-        categories[transaction.category] = { total: 0, type: transaction.type }
+        categories[transaction.category] = { total: 0, count: 0, avg: 0 }
       }
       categories[transaction.category].total += transaction.amount
+      categories[transaction.category].count += 1
+    })
+    
+    // Calculate average per category
+    Object.keys(categories).forEach(cat => {
+      categories[cat].avg = categories[cat].total / categories[cat].count
     })
     
     return Object.entries(categories)
       .sort((a, b) => b[1].total - a[1].total)
-      .slice(0, 5)
+      .map(([category, data]) => ({
+        category,
+        total: data.total,
+        count: data.count,
+        avg: data.avg,
+        percentage: expenses.length > 0 
+          ? (data.total / expenses.reduce((sum, t) => sum + t.amount, 0)) * 100 
+          : 0
+      }))
   }, [transactions])
 
   // Generate improved trend data
   const trendData = useMemo(() => {
-    // Create a proper ordered array of the last 6 months
+    // Make sure we show current month and previous 2 months
     const now = new Date()
-    const monthsArray = []
-    for (let i = 5; i >= 0; i--) {
-      const monthDate = new Date(now.getFullYear(), now.getMonth() - i, 1)
-      const monthKey = monthDate.toISOString().substring(0, 7)
-      monthsArray.push(monthKey)
-    }
+    const currentYear = now.getFullYear()
+    const currentMonth = now.getMonth() // 0-indexed (January is 0)
     
-    return monthsArray.map(month => {
+    // Create array with current month first, then previous months
+    const monthsData = []
+    
+    // Add the last 3 months (including current) - most recent first
+    for (let i = 0; i < 3; i++) {
+      // Calculate month (handle negative months by adjusting year)
+      let monthIndex = currentMonth - i
+      let yearIndex = currentYear
+      
+      if (monthIndex < 0) {
+        monthIndex += 12
+        yearIndex -= 1
+      }
+      
+      // Format as YYYY-MM
+      const monthStr = `${yearIndex}-${String(monthIndex + 1).padStart(2, '0')}`
+      
+      // Calculate data for this month
       const monthExpenses = transactions
-        .filter(t => t.date.startsWith(month) && t.type === 'expense')
+        .filter(t => t.date.startsWith(monthStr) && t.type === 'expense')
         .reduce((sum, t) => sum + t.amount, 0)
       
       const monthIncome = transactions
-        .filter(t => t.date.startsWith(month) && t.type === 'income')
+        .filter(t => t.date.startsWith(monthStr) && t.type === 'income')
         .reduce((sum, t) => sum + t.amount, 0)
       
-      return {
-        month: new Date(`${month}-01`).toLocaleDateString(undefined, { month: 'short' }),
+      // Get month name (e.g., "Mar")
+      const monthName = new Date(yearIndex, monthIndex, 1).toLocaleDateString(undefined, { month: 'short' })
+      
+      // Add to our data array (most recent first)
+      monthsData.push({
+        month: `${monthName} ${yearIndex}`,
         expenses: monthExpenses,
-        income: monthIncome
-      }
-    })
+        income: monthIncome,
+        date: new Date(yearIndex, monthIndex, 1) // Store full date for sorting
+      })
+    }
+    
+    // Sort oldest to newest
+    monthsData.sort((a, b) => a.date.getTime() - b.date.getTime())
+    
+    // Return without the date property
+    return monthsData.map(({ month, expenses, income }) => ({ month, expenses, income }))
   }, [transactions])
 
   // Get highest value for chart scaling
@@ -231,36 +301,45 @@ export default function Dashboard() {
     : transactions.slice(0, 5)
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      {/* Header & Welcome */}
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900">Welcome back{profile ? `, ${profile.country === 'US' ? 'American' : profile.country} friend` : ''}!</h1>
-        <p className="text-gray-600 mt-1">Here's an overview of your finances</p>
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 bg-gray-50 min-h-screen">
+      {/* Header & Welcome - More minimal, clean design */}
+      <div className="mb-8 flex justify-between items-center">
+        <div>
+          {/* Removed welcome text */}
+        </div>
+        
+        <button 
+          onClick={() => router.push('/transactions/new')}
+          className="inline-flex items-center px-3 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 focus:outline-none transition-all duration-200 text-sm font-medium"
+        >
+          <PlusIcon className="h-4 w-4 mr-1" />
+          <span>Add Transaction</span>
+        </button>
       </div>
       
-      {/* Time Period Selector */}
-      <div className="mb-8 flex justify-between items-center">
-        <div className="flex items-center space-x-2 bg-white rounded-lg shadow p-1">
+      {/* Time Period Selector - More subtle and minimal */}
+      <div className="mb-6 flex justify-between items-center">
+        <div className="flex items-center bg-white rounded-md shadow-sm">
           <button 
-            className={`px-4 py-2 rounded-md text-sm font-medium ${timeframe === 'week' ? 'bg-indigo-100 text-indigo-700' : 'text-gray-600 hover:bg-gray-100'}`}
+            className={`px-4 py-2 rounded-md text-sm ${timeframe === 'week' ? 'bg-indigo-50 text-indigo-700 font-medium' : 'text-gray-600 hover:bg-gray-50'}`}
             onClick={() => setTimeframe('week')}
           >
             Week
           </button>
           <button 
-            className={`px-4 py-2 rounded-md text-sm font-medium ${timeframe === 'month' ? 'bg-indigo-100 text-indigo-700' : 'text-gray-600 hover:bg-gray-100'}`}
+            className={`px-4 py-2 rounded-md text-sm ${timeframe === 'month' ? 'bg-indigo-50 text-indigo-700 font-medium' : 'text-gray-600 hover:bg-gray-50'}`}
             onClick={() => setTimeframe('month')}
           >
             Month
           </button>
           <button 
-            className={`px-4 py-2 rounded-md text-sm font-medium ${timeframe === 'year' ? 'bg-indigo-100 text-indigo-700' : 'text-gray-600 hover:bg-gray-100'}`}
+            className={`px-4 py-2 rounded-md text-sm ${timeframe === 'year' ? 'bg-indigo-50 text-indigo-700 font-medium' : 'text-gray-600 hover:bg-gray-50'}`}
             onClick={() => setTimeframe('year')}
           >
             Year
           </button>
           <button 
-            className={`px-4 py-2 rounded-md text-sm font-medium ${timeframe === 'all' ? 'bg-indigo-100 text-indigo-700' : 'text-gray-600 hover:bg-gray-100'}`}
+            className={`px-4 py-2 rounded-md text-sm ${timeframe === 'all' ? 'bg-indigo-50 text-indigo-700 font-medium' : 'text-gray-600 hover:bg-gray-50'}`}
             onClick={() => setTimeframe('all')}
           >
             All Time
@@ -269,335 +348,436 @@ export default function Dashboard() {
         
         <button 
           onClick={handleRefresh} 
-          className={`p-2 rounded-full text-gray-500 hover:bg-gray-100 ${refreshing ? 'animate-spin' : ''}`}
+          className={`p-2 rounded-full text-gray-500 hover:bg-white hover:shadow-sm ${refreshing ? 'animate-spin' : ''}`}
           disabled={refreshing}
         >
           <ArrowPathIcon className="h-5 w-5" />
         </button>
       </div>
       
-      {/* Tabs */}
-      <div className="mb-8">
-        <div className="border-b border-gray-200">
-          <nav className="-mb-px flex space-x-8">
-            <button
-              className={`py-4 px-3 border-b-2 font-medium text-sm transition-all duration-200 ${
-                activeTab === 'overview'
-                  ? 'border-indigo-500 text-indigo-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-              }`}
-              onClick={() => setActiveTab('overview')}
-            >
-              <span className="flex items-center">
-                <ChartBarIcon className={`mr-2 h-5 w-5 ${activeTab === 'overview' ? 'text-indigo-500' : 'text-gray-400'}`} />
+      {/* Main content wrapper */}
+      <div className="space-y-6">
+        {/* Stats Cards - Minimal, clean design */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="bg-white rounded-lg p-5 shadow-sm hover:shadow-md transition-all duration-300">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-medium text-gray-500">Income</h3>
+              <div className="p-1.5 rounded-full bg-emerald-50">
+                <ArrowTrendingUpIcon className="h-4 w-4 text-emerald-500" />
+              </div>
+            </div>
+            <p className="text-2xl font-medium text-gray-900">{formatAmount(stats.totalIncome)}</p>
+            <p className="mt-2 text-xs text-gray-400">
+              {timeframe === 'week' ? 'Last 7 days' : 
+               timeframe === 'month' ? 'Last 30 days' : 
+               timeframe === 'year' ? 'Last 12 months' : 'All time'}
+            </p>
+          </div>
+          
+          <div className="bg-white rounded-lg p-5 shadow-sm hover:shadow-md transition-all duration-300">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-medium text-gray-500">Expenses</h3>
+              <div className="p-1.5 rounded-full bg-rose-50">
+                <ArrowTrendingDownIcon className="h-4 w-4 text-rose-500" />
+              </div>
+            </div>
+            <p className="text-2xl font-medium text-gray-900">{formatAmount(stats.totalExpenses)}</p>
+            <p className="mt-2 text-xs text-gray-400">
+              {timeframe === 'week' ? 'Last 7 days' : 
+               timeframe === 'month' ? 'Last 30 days' : 
+               timeframe === 'year' ? 'Last 12 months' : 'All time'}
+            </p>
+          </div>
+          
+          <div className="bg-white rounded-lg p-5 shadow-sm hover:shadow-md transition-all duration-300">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-medium text-gray-500">Balance</h3>
+              <div className="p-1.5 rounded-full bg-indigo-50">
+                <BanknotesIcon className="h-4 w-4 text-indigo-500" />
+              </div>
+            </div>
+            <p className={`text-2xl font-medium ${stats.balance >= 0 ? 'text-gray-900' : 'text-rose-500'}`}>
+              {formatAmount(stats.balance)}
+            </p>
+            <div className="mt-2 text-xs text-gray-400 flex justify-between items-center">
+              <span>Current balance</span>
+              <span className={`px-2 py-0.5 rounded-full text-xs ${stats.balance >= 0 ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>
+                {stats.balance >= 0 ? 'Positive' : 'Negative'}
+              </span>
+            </div>
+          </div>
+        </div>
+        
+        {/* Tabs - Minimal style */}
+        <div className="bg-white rounded-lg shadow-sm">
+          <div className="border-b border-gray-100">
+            <nav className="flex">
+              <button
+                className={`py-3 px-4 text-sm font-medium transition-all duration-200 ${
+                  activeTab === 'overview'
+                    ? 'border-b-2 border-indigo-500 text-indigo-600'
+                    : 'text-gray-500 hover:text-gray-700'
+                }`}
+                onClick={() => setActiveTab('overview')}
+              >
                 Overview
-              </span>
-            </button>
-            <button
-              className={`py-4 px-3 border-b-2 font-medium text-sm transition-all duration-200 ${
-                activeTab === 'insights'
-                  ? 'border-indigo-500 text-indigo-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-              }`}
-              onClick={() => setActiveTab('insights')}
-            >
-              <span className="flex items-center">
-                <ArrowTrendingUpIcon className={`mr-2 h-5 w-5 ${activeTab === 'insights' ? 'text-indigo-500' : 'text-gray-400'}`} />
+              </button>
+              <button
+                className={`py-3 px-4 text-sm font-medium transition-all duration-200 ${
+                  activeTab === 'insights'
+                    ? 'border-b-2 border-indigo-500 text-indigo-600'
+                    : 'text-gray-500 hover:text-gray-700'
+                }`}
+                onClick={() => setActiveTab('insights')}
+              >
                 Insights
-              </span>
-            </button>
-            <button
-              className={`py-4 px-3 border-b-2 font-medium text-sm transition-all duration-200 ${
-                activeTab === 'budget'
-                  ? 'border-indigo-500 text-indigo-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-              }`}
-              onClick={() => setActiveTab('budget')}
-            >
-              <span className="flex items-center">
-                <BanknotesIcon className={`mr-2 h-5 w-5 ${activeTab === 'budget' ? 'text-indigo-500' : 'text-gray-400'}`} />
+              </button>
+              <button
+                className={`py-3 px-4 text-sm font-medium transition-all duration-200 ${
+                  activeTab === 'budget'
+                    ? 'border-b-2 border-indigo-500 text-indigo-600'
+                    : 'text-gray-500 hover:text-gray-700'
+                }`}
+                onClick={() => setActiveTab('budget')}
+              >
                 Budget
-              </span>
-            </button>
-          </nav>
+              </button>
+            </nav>
+          </div>
+        
+          {/* Tab content container */}
+          <div className="p-5">
+            {activeTab === 'overview' && (
+              <div className="space-y-6">
+                {/* Expense Trend Chart - Modern, sleek design */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  {/* Chart */}
+                  <div className="md:col-span-2 bg-white rounded-xl p-6 shadow-sm border border-gray-50">
+                    <div className="flex justify-between items-center mb-5">
+                      <h2 className="text-base font-semibold text-gray-900">3-Month Expense Trend</h2>
+                      <div className="text-xs text-gray-500 flex items-center bg-gray-50 px-2 py-1 rounded-full">
+                        <CalendarDaysIcon className="h-3.5 w-3.5 mr-1 text-indigo-500" />
+                        Including current month
+                      </div>
+                    </div>
+                    
+                    {/* Modern, Gradient Bar Chart */}
+                    <div className="h-60 flex items-end justify-around mt-6 relative">
+                      {/* Light grid lines */}
+                      <div className="absolute inset-0 flex flex-col justify-between pointer-events-none">
+                        <div className="border-b border-gray-100 h-0"></div>
+                        <div className="border-b border-gray-100 h-0"></div>
+                        <div className="border-b border-gray-100 h-0"></div>
+                        <div className="border-b border-gray-100 h-0"></div>
+                      </div>
+                      
+                      {trendData.map((item, i) => (
+                        <div key={i} className="flex flex-col items-center group relative">
+                          <div className="absolute bottom-full mb-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300 bg-white shadow-lg rounded-lg p-3 text-xs text-gray-800 z-10 min-w-[140px] border border-gray-100 transform translate-y-1 group-hover:translate-y-0">
+                            <div className="font-medium text-gray-900 mb-2">{item.month}</div>
+                            <div className="flex justify-between mb-1.5">
+                              <span>Income:</span> 
+                              <span className="font-medium text-emerald-600">{formatAmount(item.income)}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span>Expenses:</span> 
+                              <span className="font-medium text-rose-600">{formatAmount(item.expenses)}</span>
+                            </div>
+                          </div>
+                          
+                          <div className="flex space-x-3">
+                            <div className="flex flex-col items-center">
+                              <div 
+                                className="w-7 rounded-t-md transition-all duration-500 hover:opacity-90 relative overflow-hidden group-hover:w-9"
+                                style={{ height: `${Math.max(item.income / chartMax * 160, 4)}px` }}
+                              >
+                                <div className="absolute inset-0 bg-gradient-to-t from-emerald-500 to-emerald-400"></div>
+                              </div>
+                              <div className="w-7 h-1 bg-emerald-300 rounded-b-sm group-hover:w-9 transition-all"></div>
+                            </div>
+                            
+                            <div className="flex flex-col items-center">
+                              <div 
+                                className="w-7 rounded-t-md transition-all duration-500 hover:opacity-90 relative overflow-hidden group-hover:w-9"
+                                style={{ height: `${Math.max(item.expenses / chartMax * 160, 4)}px` }}
+                              >
+                                <div className="absolute inset-0 bg-gradient-to-t from-rose-500 to-rose-400"></div>
+                              </div>
+                              <div className="w-7 h-1 bg-rose-300 rounded-b-sm group-hover:w-9 transition-all"></div>
+                            </div>
+                          </div>
+                          
+                          <div className="mt-3 text-sm font-medium text-gray-700">{item.month}</div>
+                        </div>
+                      ))}
+                    </div>
+                    
+                    <div className="mt-6 flex justify-center space-x-6">
+                      <div className="flex items-center p-1.5 px-3 rounded-full bg-gradient-to-r from-emerald-50 to-emerald-100">
+                        <div className="w-3 h-3 rounded-full bg-gradient-to-r from-emerald-400 to-emerald-500 mr-2"></div>
+                        <span className="text-xs font-medium text-emerald-700">Income</span>
+                      </div>
+                      <div className="flex items-center p-1.5 px-3 rounded-full bg-gradient-to-r from-rose-50 to-rose-100">
+                        <div className="w-3 h-3 rounded-full bg-gradient-to-r from-rose-400 to-rose-500 mr-2"></div>
+                        <span className="text-xs font-medium text-rose-700">Expenses</span>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  {/* Top Categories - Clean, minimal design */}
+                  <div className="bg-white rounded-lg p-5 shadow-sm">
+                    <h2 className="text-sm font-medium text-gray-900 mb-4">Top Expenses</h2>
+                    
+                    {categoryData.length === 0 ? (
+                      <div className="text-center py-6 text-gray-400 text-xs">
+                        <p>No expense data available</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        {categoryData.slice(0, 4).map((item, index) => (
+                          <div key={index} className="group">
+                            <div className="flex justify-between text-xs mb-1">
+                              <span className="font-medium text-gray-700">{item.category}</span>
+                              <span className="text-gray-900">{formatAmount(item.total)}</span>
+                            </div>
+                            <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                              <div 
+                                className="h-full rounded-full transition-all duration-500 ease-in-out"
+                                style={{ 
+                                  width: `${Math.min(item.percentage, 100)}%`,
+                                  backgroundColor: getCategoryColor(item.category)
+                                }}
+                              ></div>
+                            </div>
+                            <div className="flex justify-between mt-1 text-xs text-gray-400">
+                              <span>{item.count} items</span>
+                              <span>{item.percentage.toFixed(1)}%</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    
+                    <button 
+                      className="mt-4 w-full py-2 bg-gray-50 text-xs text-gray-600 rounded-md border border-gray-100 hover:bg-gray-100 transition-all duration-200"
+                      onClick={() => router.push('/transactions')}
+                    >
+                      View All Categories
+                    </button>
+                  </div>
+                </div>
+                
+                {/* Category Breakdown - Minimalist card design */}
+                <div className="bg-white rounded-lg p-5 shadow-sm">
+                  <div className="flex justify-between items-center mb-4">
+                    <h2 className="text-sm font-medium text-gray-900">Expense Breakdown</h2>
+                    <div className="text-xs text-gray-500">
+                      {timeframe === 'week' ? 'Last 7 days' : 
+                      timeframe === 'month' ? 'Last 30 days' : 
+                      timeframe === 'year' ? 'Last 12 months' : 'All time'}
+                    </div>
+                  </div>
+                  
+                  {categoryData.length === 0 ? (
+                    <div className="text-center py-6 text-xs text-gray-400">
+                      <p>No expense data available</p>
+                    </div>
+                  ) : (
+                    <>
+                      {/* Minimalist category grid */}
+                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3 mb-4">
+                        {categoryData.slice(0, 6).map((item, index) => (
+                          <div 
+                            key={index} 
+                            className="bg-gray-50 rounded-md p-3 flex flex-col items-center hover:shadow-sm transition-all duration-200"
+                          >
+                            <div className="w-8 h-8 rounded-full flex items-center justify-center bg-white shadow-sm mb-2">
+                              {getIconForCategory(item.category, 'expense')}
+                            </div>
+                            <p className="text-xs font-medium text-gray-700 truncate w-full text-center">{item.category}</p>
+                            <p className="text-xs font-medium mt-1" style={{ color: getCategoryColor(item.category) }}>
+                              {formatAmount(item.total)}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                      
+                      {/* Percentage bar - Minimal */}
+                      <div className="h-4 flex rounded-md overflow-hidden mb-2 bg-gray-100">
+                        {categoryData.slice(0, 6).map((item, index) => (
+                          <div 
+                            key={index}
+                            className="h-full transition-all duration-500"
+                            style={{ 
+                              width: `${item.percentage}%`,
+                              backgroundColor: getCategoryColor(item.category),
+                            }}
+                            title={`${item.category}: ${formatAmount(item.total)}`}
+                          ></div>
+                        ))}
+                      </div>
+                      
+                      {/* Legend */}
+                      <div className="flex flex-wrap gap-3 mt-3">
+                        {categoryData.slice(0, 6).map((item, index) => (
+                          <div key={index} className="flex items-center">
+                            <div 
+                              className="w-2 h-2 rounded-full mr-1"
+                              style={{ backgroundColor: getCategoryColor(item.category) }}
+                            ></div>
+                            <span className="text-xs text-gray-600">{item.category}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </div>
+                
+                {/* Recent Transactions - Minimalist design */}
+                <div className="bg-white rounded-lg shadow-sm overflow-hidden">
+                  <div className="p-5 flex justify-between items-center">
+                    <h2 className="text-sm font-medium text-gray-900">Recent Transactions</h2>
+                  </div>
+                  
+                  {loading ? (
+                    <div className="text-center py-8">
+                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-500 mx-auto"></div>
+                    </div>
+                  ) : transactions.length === 0 ? (
+                    <div className="text-center py-10 px-4">
+                      <div className="mx-auto w-12 h-12 bg-indigo-50 rounded-full flex items-center justify-center mb-3">
+                        <CreditCardIcon className="h-6 w-6 text-indigo-400" />
+                      </div>
+                      <p className="text-gray-500 text-xs mb-4 max-w-xs mx-auto">Add your first transaction to start tracking your finances.</p>
+                      <button
+                        onClick={() => router.push('/transactions/new')}
+                        className="inline-flex items-center px-3 py-1.5 bg-indigo-50 text-indigo-600 rounded-md hover:bg-indigo-100 text-xs font-medium"
+                      >
+                        <PlusIcon className="h-3 w-3 mr-1" />
+                        <span>Add Transaction</span>
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="divide-y divide-gray-50">
+                      {visibleTransactions.map((transaction) => (
+                        <div
+                          key={transaction.id}
+                          className="flex items-center p-3 hover:bg-gray-50 transition-all duration-200 cursor-pointer"
+                          onClick={() => router.push(`/transactions/edit/${transaction.id}`)}
+                        >
+                          <div className="h-8 w-8 rounded-full flex items-center justify-center bg-gray-50 mr-3">
+                            {getIconForCategory(transaction.category, transaction.type)}
+                          </div>
+                          
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-medium text-gray-800 truncate">{transaction.description}</p>
+                            <div className="flex items-center text-xs text-gray-400">
+                              <span>{new Date(transaction.date).toLocaleDateString(undefined, {month: 'short', day: 'numeric'})}</span>
+                              <span className="mx-1">•</span>
+                              <span>{transaction.category}</span>
+                            </div>
+                          </div>
+                          
+                          <div className="ml-4 text-right">
+                            <p className={`text-xs font-medium ${
+                              transaction.type === 'income' ? 'text-emerald-600' : 'text-rose-600'
+                            }`}>
+                              {transaction.type === 'income' ? '+' : '-'}{formatAmount(transaction.amount)}
+                            </p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  
+                  {!loading && transactions.length > 0 && (
+                    <div className="p-3 text-center border-t border-gray-50">
+                      {transactions.length > 5 && !showAllTransactions ? (
+                        <button 
+                          onClick={() => setShowAllTransactions(true)}
+                          className="text-indigo-600 hover:text-indigo-800 text-xs font-medium transition-all duration-200"
+                        >
+                          View All
+                        </button>
+                      ) : (
+                        <button 
+                          onClick={() => router.push('/transactions')}
+                          className="text-indigo-600 hover:text-indigo-800 text-xs font-medium transition-all duration-200"
+                        >
+                          Go to Transactions Page
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+            
+            {activeTab === 'insights' && (
+              <div className="text-center py-10 px-4">
+                <div className="mx-auto w-12 h-12 bg-indigo-50 rounded-full flex items-center justify-center mb-3">
+                  <ChartBarIcon className="h-6 w-6 text-indigo-400" />
+                </div>
+                <h3 className="text-sm font-medium text-gray-800 mb-2">Insights Coming Soon</h3>
+                <p className="text-gray-500 text-xs mb-6 max-w-xs mx-auto">
+                  Advanced financial insights with AI-powered analysis are on the way.
+                </p>
+                <div className="grid grid-cols-2 gap-3 max-w-md mx-auto">
+                  <div className="h-20 w-full bg-indigo-50 rounded-md animate-pulse"></div>
+                  <div className="h-20 w-full bg-indigo-50 rounded-md animate-pulse"></div>
+                  <div className="h-20 w-full bg-indigo-50 rounded-md animate-pulse"></div>
+                  <div className="h-20 w-full bg-indigo-50 rounded-md animate-pulse"></div>
+                </div>
+              </div>
+            )}
+            
+            {activeTab === 'budget' && (
+              <div className="text-center py-10 px-4">
+                <div className="mx-auto w-12 h-12 bg-indigo-50 rounded-full flex items-center justify-center mb-3">
+                  <BanknotesIcon className="h-6 w-6 text-indigo-400" />
+                </div>
+                <h3 className="text-sm font-medium text-gray-800 mb-2">Budgeting Coming Soon</h3>
+                <p className="text-gray-500 text-xs mb-6 max-w-xs mx-auto">
+                  Set budgets for different categories and track your spending against your goals.
+                </p>
+                <div className="max-w-sm mx-auto space-y-3">
+                  <div className="flex justify-between items-center text-xs px-2">
+                    <span className="text-gray-600">Food & Groceries</span>
+                    <span className="text-gray-800">80%</span>
+                  </div>
+                  <div className="h-2 w-full bg-gray-100 rounded-full overflow-hidden">
+                    <div className="h-2 bg-indigo-400 rounded-full w-4/5"></div>
+                  </div>
+                  
+                  <div className="flex justify-between items-center text-xs px-2">
+                    <span className="text-gray-600">Entertainment</span>
+                    <span className="text-gray-800">45%</span>
+                  </div>
+                  <div className="h-2 w-full bg-gray-100 rounded-full overflow-hidden">
+                    <div className="h-2 bg-emerald-400 rounded-full w-[45%]"></div>
+                  </div>
+                  
+                  <div className="flex justify-between items-center text-xs px-2">
+                    <span className="text-gray-600">Transportation</span>
+                    <span className="text-gray-800">60%</span>
+                  </div>
+                  <div className="h-2 w-full bg-gray-100 rounded-full overflow-hidden">
+                    <div className="h-2 bg-amber-400 rounded-full w-[60%]"></div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </div>
       
-      {activeTab === 'overview' && (
-        <>
-          {/* Stats Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-            <div className="bg-gradient-to-br from-emerald-50 to-emerald-100/50 rounded-xl shadow-lg p-6 border border-emerald-100 transform transition-all duration-300 hover:scale-[1.02] hover:shadow-xl">
-              <div className="flex items-center mb-4">
-                <div className="p-3 rounded-full bg-emerald-100 shadow-inner">
-                  <ArrowTrendingUpIcon className="h-6 w-6 text-emerald-600" />
-                </div>
-                <h3 className="ml-4 text-lg font-medium text-gray-900">Total Income</h3>
-              </div>
-              <p className="text-3xl font-bold text-emerald-600">{formatAmount(stats.totalIncome)}</p>
-              <p className="mt-2 text-sm text-gray-500">
-                {timeframe === 'week' ? 'Last 7 days' : 
-                timeframe === 'month' ? 'Last 30 days' : 
-                timeframe === 'year' ? 'Last 12 months' : 'All time'}
-              </p>
-            </div>
-            
-            <div className="bg-gradient-to-br from-rose-50 to-rose-100/50 rounded-xl shadow-lg p-6 border border-rose-100 transform transition-all duration-300 hover:scale-[1.02] hover:shadow-xl">
-              <div className="flex items-center mb-4">
-                <div className="p-3 rounded-full bg-rose-100 shadow-inner">
-                  <ArrowTrendingDownIcon className="h-6 w-6 text-rose-600" />
-                </div>
-                <h3 className="ml-4 text-lg font-medium text-gray-900">Total Expenses</h3>
-              </div>
-              <p className="text-3xl font-bold text-rose-600">{formatAmount(stats.totalExpenses)}</p>
-              <p className="mt-2 text-sm text-gray-500">
-                {timeframe === 'week' ? 'Last 7 days' : 
-                timeframe === 'month' ? 'Last 30 days' : 
-                timeframe === 'year' ? 'Last 12 months' : 'All time'}
-              </p>
-            </div>
-            
-            <div className="bg-gradient-to-br from-indigo-50 to-indigo-100/50 rounded-xl shadow-lg p-6 border border-indigo-100 transform transition-all duration-300 hover:scale-[1.02] hover:shadow-xl">
-              <div className="flex items-center mb-4">
-                <div className="p-3 rounded-full bg-indigo-100 shadow-inner">
-                  <BanknotesIcon className="h-6 w-6 text-indigo-600" />
-                </div>
-                <h3 className="ml-4 text-lg font-medium text-gray-900">Balance</h3>
-              </div>
-              <p className={`text-3xl font-bold ${stats.balance >= 0 ? 'text-indigo-600' : 'text-rose-600'}`}>
-                {formatAmount(stats.balance)}
-              </p>
-              <p className="mt-2 text-sm text-gray-500">
-                Current balance
-              </p>
-            </div>
-          </div>
-          
-          {/* Middle Section */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
-            {/* Spending By Category Chart */}
-            <div className="lg:col-span-2 bg-white rounded-xl shadow-lg p-6 border border-gray-200">
-              <div className="flex justify-between items-center mb-6">
-                <h2 className="text-lg font-semibold text-gray-900">Spending Trend</h2>
-                <div className="flex items-center text-sm text-gray-500">
-                  <CalendarDaysIcon className="h-4 w-4 mr-1" />
-                  Last 6 months
-                </div>
-              </div>
-              
-              {/* Simple Mock Bar Chart */}
-              <div className="h-64 flex items-end justify-between">
-                {trendData.map((item, i) => (
-                  <div key={i} className="flex flex-col items-center group relative">
-                    <div className="absolute bottom-full mb-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200 bg-gray-800 text-white text-xs py-1 px-2 rounded pointer-events-none transform -translate-x-1/2 left-1/2 z-10 min-w-[120px]">
-                      <div className="flex justify-between mb-1">
-                        <span>Income:</span> 
-                        <span className="font-medium text-emerald-300">{formatAmount(item.income)}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span>Expenses:</span> 
-                        <span className="font-medium text-rose-300">{formatAmount(item.expenses)}</span>
-                      </div>
-                    </div>
-                    <div className="w-16 flex space-x-1">
-                      <div 
-                        className="w-1/2 bg-emerald-400 rounded-t-md transition-all duration-300 hover:bg-emerald-500"
-                        style={{ height: `${Math.max(item.income / chartMax * 180, 4)}px` }}
-                      ></div>
-                      <div 
-                        className="w-1/2 bg-rose-400 rounded-t-md transition-all duration-300 hover:bg-rose-500"
-                        style={{ height: `${Math.max(item.expenses / chartMax * 180, 4)}px` }}
-                      ></div>
-                    </div>
-                    <div className="mt-2 text-xs text-gray-500 font-medium">{item.month}</div>
-                  </div>
-                ))}
-              </div>
-              
-              <div className="mt-4 flex justify-center space-x-6">
-                <div className="flex items-center">
-                  <div className="w-3 h-3 rounded-full bg-emerald-400 mr-2"></div>
-                  <span className="text-sm text-gray-500">Income</span>
-                </div>
-                <div className="flex items-center">
-                  <div className="w-3 h-3 rounded-full bg-rose-400 mr-2"></div>
-                  <span className="text-sm text-gray-500">Expenses</span>
-                </div>
-              </div>
-            </div>
-            
-            {/* Top Categories */}
-            <div className="bg-white rounded-xl shadow-lg p-6 border border-gray-200">
-              <div className="flex justify-between items-center mb-4">
-                <h2 className="text-lg font-semibold text-gray-900">Top Categories</h2>
-                <ChartBarIcon className="h-5 w-5 text-gray-400" />
-              </div>
-              
-              {categoryData.length === 0 ? (
-                <div className="text-center py-8 text-gray-500">
-                  <p>No transaction data available</p>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  {categoryData.map(([category, data], index) => (
-                    <div key={index} className="relative group">
-                      <div className="flex items-center p-2 rounded-lg hover:bg-gray-50 transition-all duration-200">
-                        <div className="mr-3 p-2 rounded-full bg-gray-100">
-                          {getIconForCategory(category, data.type)}
-                        </div>
-                        <div className="flex-1">
-                          <div className="flex justify-between">
-                            <p className="text-sm font-medium text-gray-700">{category}</p>
-                            <p className={`text-sm font-medium ${data.type === 'income' ? 'text-emerald-600' : 'text-rose-600'}`}>
-                              {formatAmount(data.total)}
-                            </p>
-                          </div>
-                          <div className="w-full h-2 bg-gray-100 rounded-full mt-1 overflow-hidden">
-                            <div 
-                              className={`h-2 rounded-full ${data.type === 'income' ? 'bg-emerald-500' : 'bg-rose-500'} transition-all duration-500 ease-in-out`}
-                              style={{ width: `${Math.min((data.total / stats[data.type === 'income' ? 'totalIncome' : 'totalExpenses']) * 100, 100)}%` }}
-                            ></div>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-              
-              <button 
-                className="mt-6 w-full py-2 bg-gray-50 text-gray-600 rounded-md border border-gray-200 text-sm font-medium hover:bg-gray-100 transition-all duration-200 shadow-sm hover:shadow"
-                onClick={() => router.push('/transactions')}
-              >
-                View All Categories
-              </button>
-            </div>
-          </div>
-          
-          {/* Recent Transactions */}
-          <div className="bg-white rounded-xl shadow-lg overflow-hidden border border-gray-200">
-            <div className="flex justify-between items-center p-6 border-b border-gray-200 bg-gray-50">
-              <h2 className="text-lg font-semibold text-gray-900">Recent Transactions</h2>
-              <button
-                onClick={() => router.push('/transactions/new')}
-                className="inline-flex items-center px-3 py-1.5 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 focus:outline-none transition-all duration-200 shadow-sm"
-              >
-                <PlusIcon className="h-4 w-4 mr-1" />
-                <span className="text-sm font-medium">Add New</span>
-              </button>
-            </div>
-            
-            {loading ? (
-              <div className="text-center py-12">
-                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mx-auto"></div>
-              </div>
-            ) : transactions.length === 0 ? (
-              <div className="text-center py-16 px-4 bg-white">
-                <div className="mx-auto w-20 h-20 bg-indigo-50 rounded-full flex items-center justify-center mb-4 shadow-inner">
-                  <CreditCardIcon className="h-10 w-10 text-indigo-400" />
-                </div>
-                <h3 className="text-gray-900 font-medium mb-2 text-lg">No transactions yet</h3>
-                <p className="text-gray-500 mb-8 max-w-md mx-auto">Add your first transaction to start tracking your finances and see personalized insights.</p>
-                <button
-                  onClick={() => router.push('/transactions/new')}
-                  className="inline-flex items-center px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 focus:outline-none shadow-md transition-all duration-200 hover:shadow-lg"
-                >
-                  <PlusIcon className="h-5 w-5 mr-2" />
-                  <span>Add First Transaction</span>
-                </button>
-              </div>
-            ) : (
-              <div className="divide-y divide-gray-100">
-                {visibleTransactions.map((transaction) => (
-                  <div
-                    key={transaction.id}
-                    className="flex items-center p-4 hover:bg-gray-50 transition-all duration-200 cursor-pointer group"
-                    onClick={() => router.push(`/transactions/edit/${transaction.id}`)}
-                  >
-                    <div className="h-12 w-12 rounded-full flex items-center justify-center bg-gray-100 mr-4 shadow-sm group-hover:shadow group-hover:scale-110 transition-all duration-200">
-                      {getIconForCategory(transaction.category, transaction.type)}
-                    </div>
-                    
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-gray-900 truncate">{transaction.description}</p>
-                      <div className="flex items-center text-xs text-gray-500">
-                        <ClockIcon className="h-3 w-3 mr-1" />
-                        <span>{new Date(transaction.date).toLocaleDateString()}</span>
-                        <span className="mx-2">•</span>
-                        <span>{transaction.category}</span>
-                      </div>
-                    </div>
-                    
-                    <div className="ml-4 text-right">
-                      <p className={`text-sm font-semibold ${
-                        transaction.type === 'income' ? 'text-emerald-600' : 'text-rose-600'
-                      }`}>
-                        {transaction.type === 'income' ? '+' : '-'}{formatAmount(transaction.amount)}
-                      </p>
-                    </div>
-                    
-                    <ChevronRightIcon className="h-5 w-5 text-gray-400 ml-4 opacity-0 group-hover:opacity-100 transition-opacity duration-200" />
-                  </div>
-                ))}
-              </div>
-            )}
-            
-            {!loading && transactions.length > 0 && (
-              <div className="p-4 text-center border-t border-gray-200 bg-gray-50">
-                {transactions.length > 5 && !showAllTransactions ? (
-                  <button 
-                    onClick={() => setShowAllTransactions(true)}
-                    className="text-indigo-600 hover:text-indigo-800 text-sm font-medium transition-all duration-200 px-4 py-1 hover:bg-indigo-50 rounded-full"
-                  >
-                    View All Transactions
-                  </button>
-                ) : (
-                  <button 
-                    onClick={() => router.push('/transactions')}
-                    className="text-indigo-600 hover:text-indigo-800 text-sm font-medium transition-all duration-200 px-4 py-1 hover:bg-indigo-50 rounded-full"
-                  >
-                    Go to Transactions Page
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
-        </>
-      )}
-      
-      {activeTab === 'insights' && (
-        <div className="text-center py-16 px-4 bg-white rounded-xl shadow-lg border border-gray-200 bg-gradient-to-b from-white to-gray-50">
-          <div className="mx-auto w-20 h-20 bg-indigo-100 rounded-full flex items-center justify-center mb-4 shadow-inner">
-            <ChartBarIcon className="h-10 w-10 text-indigo-600" />
-          </div>
-          <h3 className="text-xl font-medium text-gray-900 mb-3">Insights Coming Soon</h3>
-          <p className="text-gray-500 mb-8 max-w-md mx-auto">
-            We're working on advanced financial insights with AI-powered analysis to help you manage your money smarter.
-          </p>
-          <div className="animate-pulse flex flex-wrap justify-center gap-4 max-w-2xl mx-auto">
-            <div className="h-24 w-48 bg-indigo-50 rounded-lg"></div>
-            <div className="h-24 w-48 bg-indigo-50 rounded-lg"></div>
-            <div className="h-24 w-48 bg-indigo-50 rounded-lg"></div>
-            <div className="h-24 w-48 bg-indigo-50 rounded-lg"></div>
-          </div>
-        </div>
-      )}
-      
-      {activeTab === 'budget' && (
-        <div className="text-center py-16 px-4 bg-white rounded-xl shadow-lg border border-gray-200 bg-gradient-to-b from-white to-gray-50">
-          <div className="mx-auto w-20 h-20 bg-indigo-100 rounded-full flex items-center justify-center mb-4 shadow-inner">
-            <BanknotesIcon className="h-10 w-10 text-indigo-600" />
-          </div>
-          <h3 className="text-xl font-medium text-gray-900 mb-3">Budgeting Coming Soon</h3>
-          <p className="text-gray-500 mb-8 max-w-md mx-auto">
-            Set budgets for different categories and track your spending against your goals with customized alerts and recommendations.
-          </p>
-          <div className="flex justify-center gap-4 max-w-2xl mx-auto">
-            <div className="h-6 w-full max-w-md bg-gray-100 rounded-full overflow-hidden">
-              <div className="h-6 bg-indigo-500 rounded-full w-3/4"></div>
-            </div>
-          </div>
-        </div>
+      {/* Quick Add Transaction Component */}
+      {user && (
+        <QuickAddTransaction 
+          userId={user.id} 
+          profile={profile} 
+          onComplete={handleRefresh} 
+        />
       )}
     </div>
   )

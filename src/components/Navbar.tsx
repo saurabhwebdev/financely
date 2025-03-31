@@ -49,18 +49,22 @@ export default function Navbar() {
               <span className="text-indigo-600 text-xl font-bold">Financly</span>
             </Link>
             <div className="hidden sm:ml-6 sm:flex sm:space-x-8">
-              <Link
-                href="/dashboard"
-                className="border-transparent text-gray-500 hover:border-indigo-500 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium"
-              >
-                Dashboard
-              </Link>
-              <Link
-                href="/transactions"
-                className="border-transparent text-gray-500 hover:border-indigo-500 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium"
-              >
-                Transactions
-              </Link>
+              {user && (
+                <>
+                  <Link
+                    href="/dashboard"
+                    className="border-transparent text-gray-500 hover:border-indigo-500 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium"
+                  >
+                    Dashboard
+                  </Link>
+                  <Link
+                    href="/transactions"
+                    className="border-transparent text-gray-500 hover:border-indigo-500 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium"
+                  >
+                    Transactions
+                  </Link>
+                </>
+              )}
               <Link
                 href="/about"
                 className="border-transparent text-gray-500 hover:border-indigo-500 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium"
@@ -140,20 +144,24 @@ export default function Navbar() {
       {/* Mobile menu, show/hide based on menu state */}
       <div className={`${isMenuOpen ? 'block' : 'hidden'} sm:hidden`}>
         <div className="pt-2 pb-3 space-y-1">
-          <Link
-            href="/dashboard"
-            className="block pl-3 pr-4 py-2 border-l-4 border-transparent text-base font-medium text-gray-600 hover:bg-gray-50 hover:border-gray-300 hover:text-gray-800"
-            onClick={() => setIsMenuOpen(false)}
-          >
-            Dashboard
-          </Link>
-          <Link
-            href="/transactions"
-            className="block pl-3 pr-4 py-2 border-l-4 border-transparent text-base font-medium text-gray-600 hover:bg-gray-50 hover:border-gray-300 hover:text-gray-800"
-            onClick={() => setIsMenuOpen(false)}
-          >
-            Transactions
-          </Link>
+          {user && (
+            <>
+              <Link
+                href="/dashboard"
+                className="block pl-3 pr-4 py-2 border-l-4 border-transparent text-base font-medium text-gray-600 hover:bg-gray-50 hover:border-gray-300 hover:text-gray-800"
+                onClick={() => setIsMenuOpen(false)}
+              >
+                Dashboard
+              </Link>
+              <Link
+                href="/transactions"
+                className="block pl-3 pr-4 py-2 border-l-4 border-transparent text-base font-medium text-gray-600 hover:bg-gray-50 hover:border-gray-300 hover:text-gray-800"
+                onClick={() => setIsMenuOpen(false)}
+              >
+                Transactions
+              </Link>
+            </>
+          )}
           <Link
             href="/about"
             className="block pl-3 pr-4 py-2 border-l-4 border-transparent text-base font-medium text-gray-600 hover:bg-gray-50 hover:border-gray-300 hover:text-gray-800"

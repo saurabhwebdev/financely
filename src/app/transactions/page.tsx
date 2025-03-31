@@ -35,6 +35,9 @@ export default function Transactions() {
   const [searchTerm, setSearchTerm] = useState('')
   const [sortField, setSortField] = useState('date')
   const [sortDirection, setSortDirection] = useState('desc')
+  // Pagination states
+  const [currentPage, setCurrentPage] = useState(1)
+  const [pageSize, setPageSize] = useState(10)
   const router = useRouter()
 
   // Category icon mapping
@@ -211,6 +214,20 @@ export default function Transactions() {
     );
   });
 
+  // Calculate total pages
+  const totalPages = Math.ceil(filteredTransactions.length / pageSize)
+  
+  // Get current page transactions
+  const currentTransactions = filteredTransactions.slice(
+    (currentPage - 1) * pageSize,
+    currentPage * pageSize
+  )
+  
+  // Handle page change
+  const goToPage = (pageNum: number) => {
+    setCurrentPage(Math.max(1, Math.min(pageNum, totalPages)))
+  }
+  
   // Calculate summary
   const summary = filteredTransactions.reduce((acc, transaction) => {
     if (transaction.type === 'income') {
@@ -394,7 +411,7 @@ export default function Transactions() {
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {filteredTransactions.map((transaction, index) => (
+                {currentTransactions.map((transaction, index) => (
                   <tr key={transaction.id} className={`hover:bg-gray-50 ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>
                     <td className="px-6 py-3 whitespace-nowrap text-sm text-gray-500 border-r border-gray-100">
                       {new Date(transaction.date).toLocaleDateString()}
@@ -465,11 +482,88 @@ export default function Transactions() {
           </div>
         )}
         
-        {/* Footer */}
+        {/* Table Footer with Pagination */}
         <div className="bg-gray-50 px-6 py-3 border-t border-gray-200">
-          <p className="text-sm text-gray-500">
-            Showing {filteredTransactions.length} of {transactions.length} transactions
-          </p>
+          <div className="flex flex-col md:flex-row justify-between items-center">
+            <div className="flex items-center mb-4 md:mb-0">
+              <span className="text-sm text-gray-500 mr-4">
+                Showing {currentTransactions.length} of {filteredTransactions.length} transactions
+              </span>
+              <div className="flex items-center">
+                <label htmlFor="pageSize" className="text-sm text-gray-500 mr-2">
+                  Page Size:
+                </label>
+                <select
+                  id="pageSize"
+                  value={pageSize}
+                  onChange={(e) => {
+                    setPageSize(Number(e.target.value));
+                    setCurrentPage(1);
+                  }}
+                  className="text-sm border border-gray-300 rounded-md px-2 py-1 bg-white"
+                >
+                  <option value={5}>5</option>
+                  <option value={10}>10</option>
+                  <option value={20}>20</option>
+                  <option value={50}>50</option>
+                </select>
+              </div>
+            </div>
+            
+            {totalPages > 1 && (
+              <div className="flex items-center space-x-2">
+                <button
+                  onClick={() => goToPage(1)}
+                  disabled={currentPage === 1}
+                  className={`px-2 py-1 text-sm rounded ${
+                    currentPage === 1 
+                      ? 'text-gray-400 cursor-not-allowed' 
+                      : 'text-gray-700 hover:bg-gray-100'
+                  }`}
+                >
+                  First
+                </button>
+                <button
+                  onClick={() => goToPage(currentPage - 1)}
+                  disabled={currentPage === 1}
+                  className={`px-2 py-1 text-sm rounded ${
+                    currentPage === 1 
+                      ? 'text-gray-400 cursor-not-allowed' 
+                      : 'text-gray-700 hover:bg-gray-100'
+                  }`}
+                >
+                  Previous
+                </button>
+                
+                <span className="text-sm text-gray-700">
+                  Page {currentPage} of {totalPages}
+                </span>
+                
+                <button
+                  onClick={() => goToPage(currentPage + 1)}
+                  disabled={currentPage === totalPages}
+                  className={`px-2 py-1 text-sm rounded ${
+                    currentPage === totalPages 
+                      ? 'text-gray-400 cursor-not-allowed' 
+                      : 'text-gray-700 hover:bg-gray-100'
+                  }`}
+                >
+                  Next
+                </button>
+                <button
+                  onClick={() => goToPage(totalPages)}
+                  disabled={currentPage === totalPages}
+                  className={`px-2 py-1 text-sm rounded ${
+                    currentPage === totalPages 
+                      ? 'text-gray-400 cursor-not-allowed' 
+                      : 'text-gray-700 hover:bg-gray-100'
+                  }`}
+                >
+                  Last
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>

@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { Profile, Transaction } from '@/types/database'
 import { getCurrencySymbol } from '@/lib/countries'
+import React from 'react'
 
 // Default categories 
 const defaultCategories = [
@@ -71,9 +72,20 @@ export default function EditTransaction({ params }: { params: { id: string } }) 
   const [profile, setProfile] = useState<Profile | null>(null)
   const [customCategories, setCustomCategories] = useState<Array<{id: string, name: string, type: string}>>([])
   const [transaction, setTransaction] = useState<Transaction | null>(null)
+  const [transactionId, setTransactionId] = useState<string>('')
   const router = useRouter()
   
   useEffect(() => {
+    // Store the param ID in state to avoid direct access in the effect dependency array
+    if (params && params.id) {
+      setTransactionId(params.id)
+    }
+  }, [params])
+  
+  useEffect(() => {
+    // Only run if we have a transaction ID
+    if (!transactionId) return
+    
     const checkUser = async () => {
       const { data } = await supabase.auth.getUser()
       if (!data.user) {
@@ -83,11 +95,11 @@ export default function EditTransaction({ params }: { params: { id: string } }) 
       setUser(data.user)
       await fetchProfile(data.user.id)
       await fetchCustomCategories(data.user.id)
-      await fetchTransaction(params.id)
+      await fetchTransaction(transactionId)
     }
 
     checkUser()
-  }, [router, params.id])
+  }, [router, transactionId])
 
   async function fetchProfile(userId: string) {
     try {
